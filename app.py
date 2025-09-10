@@ -8,7 +8,7 @@ st.set_page_config(
     page_title="Speech2Text",
     page_icon="🎤",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # ─── Groq Client Initialisatie ─────────────────────────────────────────
