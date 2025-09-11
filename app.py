@@ -1,203 +1,96 @@
 import os
-import streamlit as st
-import pandas as pd
-from groq import Groq
+import shutil
+import uuid
+from docxtpl import DocxTemplate
 
-# ─── Streamlit Page Config ─────────────────────────────────────────────
-st.set_page_config(
-    page_title="Speech2Text",
-    page_icon="🎤",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+"""
+Eenvoudige CLI-tool voor het genereren van DOCX documenten uit een template
+zonder web-endpoints. Usage:
+  python app.py --template path/to/template.docx --sources path/to/source1.docx path/to/source2.docx --output path/to/output.docx
 
-# ─── Groq Client Initialisatie ─────────────────────────────────────────
-def init_groq_client():
+Werkstappen:
+1. Lees template in met docxtpl
+2. Haal variabelen (kolomnamen) uit de eerste tabelrij van het template
+3. Extract eenvoudige risico- en oorzaak-data uit bronnen (placeholder)
+4. Vul context met data en render het resultaat
+5. Sla op naar opgegeven outputpad
+"""
+
+def extract_table_headers(template_path):
     """
-    Initialiseert de Groq-client.
-    1) Check omgevingsvariabele GROQ_API_KEY
-    2) Fallback op st.secrets.toml
+    Lees de kolomnamen uit de eerste rij van de eerste tabel in een DOCX-template.
+    Retourneert een lijst van strings.
     """
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        key = st.secrets.get("groq", {}).get("api_key", "").strip()
-    if not key:
-        st.warning("⚠️ Geen Groq-key gevonden. Transcriptie en verrijken gaan niet werken.")
-        return None
-    try:
-        client = Groq(api_key=key)
-        # lichte test-call
-        models = client.models.list()
-        st.success(f"API key werkt ✅ – {len(models.data)} modellen beschikbaar")
-        return client
-    except Exception:
-        st.error("❌ Groq API key ongeldig, transcriptie kan mislukken.")
-        return None
+    doc = DocxTemplate(template_path)
+    table = doc.docx.tables[0]
+    header_cells = table.rows[0].cells
+    return [cell.text.strip() for cell in header_cells]
 
-client = init_groq_client()
 
-# ─── Sidebar Navigatie ─────────────────────────────────────────────────
-st.sidebar.title("🎤 Speech2Text Demo")
-page = st.sidebar.radio(
-    "📑 Pagina",
-    ["Home", "Upload & Transcriptie", "Analyse", "Over"]
-)
+def extract_data_from_sources(source_paths):
+    """
+    Placeholder-functie om risico's en oorzaken uit bron-documents te halen.
+    Moet later vervangen worden door echte extractielogica.
+    Retourneert een lijst van dicts met keys 'risico', 'oorzaak', 'beheersmaatregel'.
+    """
+    # Simpele dummy-implementatie: telkens één voorbeeld per bestand
+    data = []
+    for path in source_paths:
+        filename = os.path.basename(path)
+        data.append({
+            'risico': f'Risico uit {filename}',
+            'oorzaak': f'Oorzaak uit {filename}',
+            'beheersmaatregel': ''  # leeg: later vullen
+        })
+    return data
 
-# ─── Pagina: Home ───────────────────────────────────────────────────────
-if page == "Home":
-    st.title("✨ Welkom bij Speech2Text")
-    st.markdown(
-        """
-        Met deze demo kun je eenvoudig een **audiobestand** uploaden en een **verrijkte transcriptie** terugkrijgen.
 
-        🔹 Upload je bestand via de **Upload & Transcriptie** pagina  
-        🔹 Voeg context en definities toe om het transcript slimmer te maken  
-        🔹 Bekijk woordfrequenties en statistieken bij **Analyse**  
-        🔹 Leer meer bij **Over**
-        """
-    )
-    st.success("Kies links een pagina om te starten!")
+def fill_missing_measures(data):
+    """
+    Eenvoudige placeholder: vul ontbrekende beheersmaatregelen
+    met een statische tekst. Kan later uitgebreid worden.
+    """
+    for item in data:
+        if not item['beheersmaatregel']:
+            item['beheersmaatregel'] = 'Voorstel maatregel...'
+    return data
 
-# ─── Pagina: Upload & Transcriptie ─────────────────────────────────────
-elif page == "Upload & Transcriptie":
-    st.title("📂 Upload je audio + context")
 
-    transcript = st.session_state.get("transcript", "")
-    context_text = ""
+def generate_docx(template_path, source_paths, output_path):
+    # Stap 1: headers
+    headers = extract_table_headers(template_path)
+    print(f'Gevonden kolommen in template: {headers}')
 
-    col1, col2 = st.columns(2)
+    # Stap 2: data-extractie
+    data = extract_data_from_sources(source_paths)
+    # Stap 3: vul ontbrekende beheersmaatregelen
+    data = fill_missing_measures(data)
 
-    # Kolom 1: Audio upload en transcriptie
-    with col1:
-        st.subheader("🎵 Upload audio (wav/mp3/m4a)")
-        audio_file = st.file_uploader(
-            label="🎵 Kies je audiobestand",
-            type=["wav", "mp3", "m4a"],
-            key="audio_uploader"
-        )
-        if audio_file and client:
-            data = audio_file.read()
-            st.audio(data)
-            st.info("Transcriberen…")
-            try:
-                res = client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=(audio_file.name, data)
-                )
-                transcript = res.text
-                st.session_state["transcript"] = transcript
-                st.success("Transcriptie afgerond ✅")
-                st.code(transcript, language="text")
-                st.download_button(
-                    "⬇️ Download (TXT)",
-                    transcript,
-                    file_name="transcript.txt",
-                    mime="text/plain"
-                )
-            except Exception as e:
-                st.error(f"Transcriptie mislukt: {e}")
+    # Maak context voor docxtpl: verwacht 'risks' met list of dicts
+    context = {'risks': data}
 
-    # Kolom 2: Context upload en preview
-    with col2:
-        st.subheader("📑 Upload extra context (TXT/JSON)")
-        context_file = st.file_uploader(
-            label="📑 Kies context-bestand",
-            type=["txt", "json"],
-            key="context_uploader"
-        )
-        if context_file:
-            if context_file.type == "application/json":
-                import json as _json
-                context_text = _json.dumps(
-                    _json.load(context_file), ensure_ascii=False, indent=2
-                )
-            else:
-                context_text = context_file.read().decode("utf-8", errors="ignore")
-            st.subheader("📄 Toegevoegde context (preview)")
-            st.text_area(
-                "Preview context",
-                context_text,
-                height=200
-            )
+    # Render en sla op
+    doc = DocxTemplate(template_path)
+    doc.render(context)
+    doc.save(output_path)
+    print(f'Document gegenereerd: {output_path}')
 
-    # Combineer transcriptie en context
-    if transcript.strip() and context_text.strip() and client:
-        st.divider()
-        if st.button("✅ Combineer transcriptie met context"):
-            st.info("Bezig met combineren…")
-            try:
-                enrich = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
-                    temperature=0.3,
-                    messages=[
-                        {"role": "system", "content": (
-                            "Combineer het transcript met de extra context. "
-                            "Maak er één vloeiende, verbeterde transcriptie van in het Nederlands."
-                        )},
-                        {"role": "user", "content": (
-                            f"Transcript:\n{transcript}\n\nContext:\n{context_text}\n\n"
-                            "Geef de gecombineerde versie als doorlopende tekst."
-                        )}
-                    ]
-                )
-                enriched = enrich.choices[0].message.content
-                st.subheader("🧠 Verrijkte transcriptie")
-                st.write(enriched)
-                st.download_button(
-                    "⬇️ Download verrijkte transcriptie (TXT)",
-                    enriched,
-                    file_name="verrijkte_transcriptie.txt",
-                    mime="text/plain"
-                )
-            except Exception as e:
-                st.error(f"Verrijken mislukt: {e}")
 
-# ─── Pagina: Analyse ───────────────────────────────────────────────────
-elif page == "Analyse":
-    st.title("📊 Analyse van transcriptie")
+if __name__ == '__main__':
+    import argparse
 
-    transcript = st.session_state.get("transcript")
-    if not transcript:
-        st.info(
-            "Nog geen transcriptie beschikbaar. Ga eerst naar **Upload & Transcriptie** en maak een transcriptie."
-        )
-        st.stop()
+    parser = argparse.ArgumentParser(description='Genereer DOCX uit template en bronnen')
+    parser.add_argument('--template', '-t', required=True, help='Pad naar DOCX-template')
+    parser.add_argument('--sources', '-s', nargs='+', required=True, help='Pad(s) naar bron-DOCX file(s)')
+    parser.add_argument('--output', '-o', required=True, help='Pad voor output DOCX')
+    args = parser.parse_args()
 
-    words = [w.lower().strip(".,!?") for w in transcript.split()]
-    st.metric("Aantal woorden", len(words))
+    # Controleer paden
+    if not os.path.isfile(args.template):
+        raise FileNotFoundError(f'Template niet gevonden: {args.template}')
+    for src in args.sources:
+        if not os.path.isfile(src):
+            raise FileNotFoundError(f'Source niet gevonden: {src}')
 
-    # Bereken woordfrequenties
-    freq = {}
-    for w in words:
-        freq[w] = freq.get(w, 0) + 1
-    freq_df = pd.DataFrame.from_dict(
-        freq, orient="index", columns=["aantal"]
-    ).sort_values("aantal", ascending=False)
-
-    with st.expander("📑 Woordfrequentie top-20"):
-        st.bar_chart(freq_df["aantal"].head(20))
-        st.table(freq_df.head(20))
-
-# ─── Pagina: Over ──────────────────────────────────────────────────────
-elif page == "Over":
-    st.title("ℹ️ Over deze app")
-    st.markdown(
-        """
-        Deze demo is gebouwd met **Streamlit** en laat zien hoe je
-        **spraak → tekst → begrip** kunt maken.
-
-        ### 💡 Waarom deze Speech-to-Text tool zo krachtig
-        1. **Meer dan alleen een transcript**  
-           Niet enkel *“wat is er gezegd”*, maar ook *hoe je het beter begrijpt*.  
-        2. **Context toevoegen**  
-           Voeg agenda’s of definities toe om uitspraken beter te plaatsen.  
-        3. **Definities en afkortingen**  
-           Jargon wordt herkend en meteen uitgelegd.  
-        4. **Verrijkte transcriptie**  
-           Je krijgt bruikbare notulen i.p.v. platte tekst.  
-        5. **Schaalbaar en consistent**  
-           Iedere meeting krijgt dezelfde kwaliteit.  
-
-        👉 Kortom: **speech-to-understanding** 🚀
-        """
-    )
+    os.makedirs(os.path.dirname(args.output) or '.', exist_ok=True)
+    generate_docx(args.template, args.sources, args.output)
